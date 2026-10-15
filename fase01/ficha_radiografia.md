@@ -1,56 +1,64 @@
+# Radiografía de una partida de NevWorld
+
+Has terminado una partida y el juego ha generado un archivo JSONL. Tu misión es abrirlo con pandas y preparar una ficha que permita a otra persona comprender qué contiene ese registro.
+
+Utiliza **los datos de tu propia partida** y las operaciones vistas en el tema. No modifiques el archivo RAW.
+
+## Teoría de apoyo
+
+JSONL guarda un evento en cada línea. pandas lo carga con `pd.read_json(..., lines=True)` en un **DataFrame**, una tabla de filas y columnas. La variable `df` recibe ese nombre como abreviatura de DataFrame: cada fila representa un evento y cada columna, un campo.
+
+| Para… | Utiliza… |
+| --- | --- |
+| Representar y comprobar la ruta | `Path(...)` y `exists()` |
+| Ver los primeros eventos | `df.head()` |
+| Obtener filas y columnas | `df.shape` |
+| Consultar los nombres de los campos | `df.columns.tolist()` |
+| Contar eventos de cada tipo | `df['type'].value_counts()` |
+| Leer un valor de la primera fila | `df['campo'].iloc[0]` |
+| Obtener los extremos de los ticks | `df['tick'].min()` y `max()` |
+
+Los eventos pueden tener campos diferentes: un `NaN` representa una ausencia, no necesariamente un error ni un cero. El tick mide tiempo simulado; varios eventos pueden compartirlo.
+
+## Enunciado
+
+Crea `scripts/actividades/fase01/01_radiografia.py` en tu proyecto `bigdata-game`. Carga el JSONL que has guardado en `data/raw`, comprobando antes que la ruta existe. Puedes apoyarte en el script del tema.
+
+Aplica las cuatro validaciones básicas del tema: que la tabla no esté vacía, que existan las columnas principales, que no se repita la pareja `run_id` y `event_index`, y que los ticks no retrocedan al ordenar por `event_index`. Hazlo antes de consultar la primera fila.
+
+Después, muestra las primeras filas y obtén los datos necesarios para completar esta ficha:
+
 | Dato de mi partida | Resultado |
 | --- | --- |
-| Nombre del archivo JSONL | nevworld_1150427077545796967_20261007_070934.jsonl |
+| Nombre del archivo JSONL | `nevworld_1150427077545796967_20261007_070934.jsonl` |
 | Número total de eventos | 7013 |
 | Número de columnas | 36 |
-| Tipo del primer evento registrado | simulation_started |
-| Tipo de evento más frecuente y cantidad | villager_activity_changed (4331 veces) |
-| Recuento de todos los tipos de evento | 14 |
-| `run_id`, semilla y versión del esquema de la primera fila  | run_id: 20261007_070934_1150427077545796967_ff0aa8620a704dcf8c0832b521d2af20<br>Semilla: 1150427077545796967<br>Versión del esquema: 2 |
-| Tick mínimo y tick máximo | 0 - 300674 |
-| Resultado de las validaciones | VALIDACIÓN OK |
+| Nombres de las columnas | `schema_version`, `run_id`, `seed`, `event_index`, `tick`, `type`, `started_at_utc`, `building_id`, `building_type`, `cell_x`, `cell_y`, `width`, `height`, `villager_id`, `activity`, `resource_type`, `amount_before`, `amount_after`, `amount_delta`, `population`, `constructed_buildings`, `wood_stock`, `food_stock`, `gold_stock`, `day`, `actor_id`, `target_id`, `interaction_type`, `topic`, `relationship_actor_to_target_after`, `relationship_target_to_actor_after`, `need_type`, `state`, `prey_type`, `name`, `age` |
+| Tipo del primer evento registrado | `simulation_started` |
+| Tipo de evento más frecuente y cantidad | `villager_activity_changed`: 4331 |
+| Recuento de todos los tipos de evento | `villager_activity_changed`: 4331<br>`villager_need_changed`: 769<br>`resource_changed`: 558<br>`world_snapshot`: 501<br>`social_interaction`: 351<br>`villager_drank`: 148<br>`villager_ate`: 116<br>`construction_abandoned`: 97<br>`hunt_completed`: 64<br>`construction_expired`: 42<br>`building_created`: 29<br>`villager_created`: 5<br>`simulation_started`: 1<br>`age_changed`: 1 |
+| `run_id`, semilla y versión del esquema de la primera fila | `run_id`: `20261007_070934_1150427077545796967_ff0aa8620a704dcf8c0832b521d2af20`<br>Semilla: `1150427077545796967`<br>Versión del esquema: 2 |
+| Tick mínimo y tick máximo | Mínimo: 0<br>Máximo: 300674 |
+| Resultado de las validaciones | **Las cuatro validaciones pasan:** la tabla no está vacía; existen las columnas principales; no se repite la pareja `run_id` + `event_index`; y los ticks no retroceden al ordenar por `event_index`. |
 
-### Nombres de las columnas
+Termina la ficha respondiendo con tus palabras:
 
-- schema_version
-- run_id
-- seed
-- event_index
-- tick
-- type
-- started_at_utc
-- building_id
-- building_type
-- cell_x
-- cell_y
-- width
-- height
-- villager_id
-- activity
-- resource_type
-- amount_before
-- amount_after
-- amount_delta
-- population
-- constructed_buildings
-- wood_stock
-- food_stock
-- gold_stock
-- day
-- actor_id
-- target_id
-- interaction_type
-- topic
-- relationship_actor_to_target_after
-- relationship_target_to_actor_after
-- need_type
-- state
-- prey_type
-- name
-- age
+### 1. ¿Qué te permite afirmar el recuento sobre tu partida? ¿Por qué el tipo más frecuente no tiene que ser el más importante?
 
-1) Se han producido 14 tipos de eventos diferentes. El más frecuente es villager_activity_changed, con 4331 apariciones. Que sea el más frecuente no significa que sea el más importante, solo que es el que más veces se ha registrado.
+El recuento permite saber cuántos eventos de cada tipo se registraron. El más frecuente fue `villager_activity_changed`, con 4331 registros. Sin embargo, ser el más frecuente no significa ser el más importante: la frecuencia no mide la duración ni el efecto de un acontecimiento. Por ejemplo, `simulation_started` solo aparece una vez y es necesario para identificar el comienzo de la partida.
 
-2) Una celda puede estar vacía porque esa columna no está relacionada con el tipo de evento de esa fila. Cada tipo de evento utiliza solo las columnas que necesita.
+### 2. ¿Por qué una celda vacía no significa necesariamente que el registro esté mal?
 
-3) Ahora sé que el archivo contiene 7013 eventos, 36 columnas y 14 tipos de eventos diferentes. También conozco el primer evento, el evento más frecuente y el rango de ticks. Para saber, por ejemplo, cómo evolucionaron los recursos durante la partida necesitaría hacer un análisis posterior.
+Cada tipo de evento utiliza campos diferentes. Por ejemplo, una actividad no necesita las columnas propias de una construcción. Una celda vacía puede indicar que el campo no corresponde a ese evento; no significa automáticamente que exista un error ni que su valor sea cero.
+
+### 3. ¿Qué sabes ahora del archivo y qué pregunta sobre tu partida necesitaría un análisis posterior?
+
+Ahora sabemos que el archivo contiene 7013 eventos de 14 tipos, tiene 36 columnas y cubre desde el tick 0 hasta el 300674. También conocemos la partida, la semilla, el esquema y la frecuencia de cada evento. Para saber cómo cambió la población durante la partida sería necesario analizar los eventos o snapshots que contienen datos de población.
+
+Ejecuta desde la raíz de `bigdata-game`, con el entorno de Python que tenga pandas instalado:
+
+```powershell
+python scripts/actividades/fase01/01_radiografia.py
+```
+
+**Entrega:** Cread un repositorio en Github con una carpeta llamada NevWorld, y una subcarpeta llamada fase01, en la que incluiréis el script y la ficha en un archivo de texto, con tus respuestas y resultados reales. Si alguna validación falla, anota el error y explica qué comprobación no se cumple; no alteres el RAW para hacerla pasar.

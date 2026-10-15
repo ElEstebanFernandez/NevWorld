@@ -10,6 +10,8 @@ df['type'].value_counts()
 
 se encuentra que el evento que registra una cacería completada es `hunt_completed`.
 
+El archivo RAW analizado es `data/raw/nevworld_1150427077545796967_20261007_070934.jsonl`.
+
 Ejemplo real del JSONL:
 
 ```json
@@ -74,12 +76,22 @@ Una de las filas comprobadas corresponde al evento:
 
 Los valores coinciden con el evento original del JSONL.
 
+Resultado real de la ejecución:
+
+- Eventos `hunt_completed` en el RAW: 64.
+- Filas guardadas en `data/processed/hunts.csv`: 64.
+- Aldeanos distintos que completaron alguna cacería: 4.
+- Presas registradas: 61 `sheep` y 3 `deer`.
+- Eventos duplicados por `run_id` + `event_index`: 0.
+- Filas con campos obligatorios ausentes: 0.
+- Todas las filas pertenecen al `run_id` `20261007_070934_1150427077545796967_ff0aa8620a704dcf8c0832b521d2af20`.
+
 
 ## 4. Detecta las conclusiones que los datos no sostienen
 
-### 1. «Hay seis filas, por tanto hay seis cazadores distintos». ¿Es necesariamente cierto?
+### 1. «Hay 64 filas, por tanto hay 64 cazadores distintos». ¿Es necesariamente cierto?
 
-No. Cada fila representa una cacería completada. Un mismo aldeano puede completar varias cacerías y aparecer en varias filas.
+No. Cada fila representa una cacería completada y un mismo aldeano puede aparecer varias veces. En esta partida hay 64 cacerías completadas, pero solamente 4 valores distintos de `villager_id`.
 
 ### 2. «Una fila indica que ese aldeano estuvo cazando durante todo el día». ¿Qué registra realmente la fila?
 

@@ -11,13 +11,23 @@ from pathlib import Path
 #Pandas se utiliza para trabajar con datos en forma de tablas mediante objetos llamados DataFrame
 import pandas as pd
 
-#Aquí guardamos en la variable DATASET la ruta del archivo que vamos a analizar.
-DATASET = Path(
-    'data/raw/datos_1.jsonl'
+# Aquí guardamos en la variable DATASET la ruta del archivo que vamos a analizar.
+DATASET = Path('data/raw/nevworld_1150427077545796967_20261007_070934.jsonl'
+
 )
 
-#Aquí definimos otra ruta:
+# Aquí definimos la carpeta de salida.
 OUTPUT_DIR = Path('data/processed')
+
+# Si se ejecuta desde la carpeta del script en el IDE, completamos las rutas
+# desde la raíz de bigdata-game.
+if not DATASET.exists():
+    PROJECT_DIR = Path(__file__).resolve().parents[3]
+    DATASET = PROJECT_DIR / DATASET
+    OUTPUT_DIR = PROJECT_DIR / OUTPUT_DIR
+
+if not DATASET.exists():
+    raise FileNotFoundError(f'No se encuentra: {DATASET.resolve()}')
 
 #Esta línea crea la carpeta: data/processed si todavía no existe.
 # parents=True -> crea también las carpetas superiores si hacen falta.
@@ -66,11 +76,11 @@ def event_table(event_type, columns):
     ].copy()
 
 
-    if not table.empty:
-        # Creamos una nueva columna simulation_day y su valor es la división
-        # entre table['tick'] y 12000, que nos permite sacar cuantos días han transcurrido
-        # En NevWorld 12000 ticks es un día.
-        table['simulation_day'] = table['tick'] // 12000
+    # Creamos una nueva columna simulation_day y su valor es la división
+    # entre table['tick'] y 12000, que nos permite sacar cuantos días han transcurrido.
+    # Se crea también cuando la tabla está vacía para conservar la cabecera del CSV.
+    # En NevWorld 12000 ticks es un día.
+    table['simulation_day'] = table['tick'] // 12000
 
     return table
 
