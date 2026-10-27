@@ -1,106 +1,81 @@
-# El parte de caza
+# Fase 02: el parte de caza
 
-## 1. Investiga antes de elegir
+El evento es **hunt_completed**. run_id más event_index lo localizan, villager_id dice quién cazó, prey_type qué presa fue y tick cuándo ocurrió.
 
-Al consultar los tipos de evento con:
+La salida es **data/processed/hunts.csv** y simulation_day se calcula con tick // 12000.
 
-```python
-df['type'].value_counts()
-```
+## Resultado real
 
-se encuentra que el evento que registra una cacería completada es `hunt_completed`.
+- 64 cacerías completadas.
+- 4 cazadores distintos.
+- 61 ovejas y 3 ciervos.
+- Sin duplicados ni huecos obligatorios.
 
-El archivo RAW analizado es `data/raw/nevworld_1150427077545796967_20261007_070934.jsonl`.
+## Respuestas
 
-Ejemplo real del JSONL:
+**¿64 filas son 64 cazadores?** No. Son cacerías; aquí solo hay cuatro cazadores distintos.
 
-```json
-{"schema_version":2,"run_id":"20261007_070934_1150427077545796967_ff0aa8620a704dcf8c0832b521d2af20","seed":"1150427077545796967","event_index":1065,"tick":50143,"type":"hunt_completed","villager_id":1166,"prey_type":"deer"}
-```
+**¿Una fila demuestra que cazó todo el día?** No. Solo marca cuándo terminó.
 
-| Pregunta | Campo o valor elegido | Justificación |
-| --- | --- | --- |
-| ¿Qué evento demuestra que la cacería terminó? | `type = hunt_completed` | Este tipo de evento indica que una cacería ha finalizado. |
-| ¿Quién la completó? | `villager_id` | Identifica al aldeano que completó la cacería. |
-| ¿Qué presa aparece registrada? | `prey_type` | Indica el tipo de presa de la cacería. |
-| ¿Cuándo ocurrió? | `tick` | Indica el momento de la simulación en el que ocurrió. |
-| ¿A qué partida pertenece? | `run_id` | Identifica la partida a la que pertenece el evento. |
-| ¿Cómo localizo el evento original sin confundirlo con otro? | `run_id` + `event_index` | La combinación permite identificar el evento concreto dentro de una partida. |
+**¿Por qué no borro todos los NaN?** Porque cada evento usa campos distintos y borraría datos válidos.
 
-`activity` no es necesario porque indica la actividad de un aldeano, pero el evento `hunt_completed` ya indica que la cacería terminó.
+**¿CSV vacío significa que nadie lo intentó?** No, solo que no hay cacerías terminadas registradas.
 
-`food_stock` no es necesario porque representa el stock de comida y no identifica la cacería completada.
+## Ejecución
 
-`amount_delta` no es necesario porque representa el cambio en la cantidad de un recurso y no forma parte del evento `hunt_completed`.
+~~~powershell
+python scripts/actividades_1/fase02/02_parte_caza.py
+~~~
 
-El evento `hunt_completed` no permite saber por sí solo cuánta comida produjo la cacería, ya que no contiene ningún campo que indique esa cantidad.
+## Código
 
+~~~python
+from pathlib import Path
 
-## 2. Construye la tabla
-
-Se genera la tabla `hunts` seleccionando únicamente los eventos `hunt_completed`.
-
-Las columnas de salida son:
-
-- `run_id`
-- `event_index`
-- `tick`
-- `villager_id`
-- `prey_type`
-- `simulation_day`
-
-`simulation_day` se calcula mediante la división entera de `tick` entre 12000.
-
-El resultado se guarda en:
-
-`data/processed/hunts.csv`
-
-El CSV mantiene las mismas cabeceras aunque no haya ninguna cacería completada.
+import pandas as pd
 
 
-## 3. Demuestra que funciona
+RAW_DIR = Path('data/raw')
+OUTPUT_DIR = Path('data/processed')
+REPORTS_DIR = Path('reports')
+RAW_FILE = RAW_DIR / 'nevworld_1150427077545796967_20261007_070934.jsonl'
 
-Se comprueba mediante `assert` que:
+if not RAW_FILE.exists():
+    raise FileNotFoundError(f'No se encuentra el RAW: {RAW_FILE}')
 
-- El número de filas coincide con el número de eventos `hunt_completed` del RAW.
-- No se repite la pareja `run_id`, `event_index`.
-- Si existen filas, `run_id`, `event_index`, `tick`, `villager_id` y `prey_type` no tienen valores ausentes.
-- `simulation_day` coincide con `tick // 12000`.
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+df = pd.read_json(RAW_FILE, lines=True, dtype={'run_id': 'string'})
 
-Una de las filas comprobadas corresponde al evento:
+required_raw = ['run_id', 'event_index', 'tick', 'type', 'villager_id', 'prey_type']
+assert set(required_raw).issubset(df.columns), 'Faltan columnas necesarias en el RAW'
 
-- `event_index`: 1065
-- `tick`: 50143
-- `villager_id`: 1166
-- `prey_type`: deer
+output_columns = [
+    'run_id', 'event_index', 'tick', 'villager_id', 'prey_type',
+    'simulation_day',
+]
+hunts = df.loc[
+    df['type'].eq('hunt_completed'),
+    output_columns[:-1],
+].copy()
+hunts['simulation_day'] = hunts['tick'] // 12000
+hunts = hunts.reindex(columns=output_columns)
 
-Los valores coinciden con el evento original del JSONL.
+expected = int(df['type'].eq('hunt_completed').sum())
+assert len(hunts) == expected, 'El numero de cacerias no coincide'
+assert not hunts.duplicated(['run_id', 'event_index']).any(), 'Hay cacerias duplicadas'
+if not hunts.empty:
+    assert hunts[output_columns].notna().all().all(), 'Hay campos obligatorios vacios'
+    assert hunts['simulation_day'].eq(hunts['tick'] // 12000).all(), \
+        'simulation_day es incorrecto'
 
-Resultado real de la ejecución:
+output_file = OUTPUT_DIR / 'hunts.csv'
+hunts.to_csv(output_file, index=False)
 
-- Eventos `hunt_completed` en el RAW: 64.
-- Filas guardadas en `data/processed/hunts.csv`: 64.
-- Aldeanos distintos que completaron alguna cacería: 4.
-- Presas registradas: 61 `sheep` y 3 `deer`.
-- Eventos duplicados por `run_id` + `event_index`: 0.
-- Filas con campos obligatorios ausentes: 0.
-- Todas las filas pertenecen al `run_id` `20261007_070934_1150427077545796967_ff0aa8620a704dcf8c0832b521d2af20`.
+print('VALIDACIONES: OK')
+print('Archivo generado:', output_file)
+print('Cacerias completadas:', len(hunts))
+print('Cazadores distintos:', hunts['villager_id'].nunique())
+print('\nCacerias por presa')
+print(hunts['prey_type'].value_counts().to_string())
+~~~
 
-
-## 4. Detecta las conclusiones que los datos no sostienen
-
-### 1. «Hay 64 filas, por tanto hay 64 cazadores distintos». ¿Es necesariamente cierto?
-
-No. Cada fila representa una cacería completada y un mismo aldeano puede aparecer varias veces. En esta partida hay 64 cacerías completadas, pero solamente 4 valores distintos de `villager_id`.
-
-### 2. «Una fila indica que ese aldeano estuvo cazando durante todo el día». ¿Qué registra realmente la fila?
-
-No. La fila registra que el aldeano completó una cacería en el momento indicado por `tick`. No indica que estuviera cazando durante todo el día.
-
-### 3. «Borro del DataFrame original todas las filas con algún `NaN` y después selecciono las cacerías». ¿Por qué puede desaparecer información válida?
-
-Porque los distintos tipos de eventos utilizan campos diferentes. Un `NaN` puede indicar simplemente que ese campo no corresponde a ese tipo de evento. Al borrar todas las filas con algún `NaN` se pueden eliminar eventos válidos.
-
-### 4. «El CSV está vacío, así que nadie intentó cazar». ¿Qué puedes afirmar realmente sobre el registro?
-
-Solo se puede afirmar que no hay eventos `hunt_completed` registrados. No se puede afirmar que nadie intentara cazar.

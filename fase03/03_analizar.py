@@ -3,123 +3,57 @@ from pathlib import Path
 import pandas as pd
 
 
-#### 1. Cargar las tablas procesadas.
-
-DATA_DIR = Path('data/processed')
+RAW_DIR = Path('data/raw')
+OUTPUT_DIR = Path('data/processed')
 REPORTS_DIR = Path('reports')
 
-# Si se ejecuta desde la carpeta del script en el IDE, completamos las rutas
-# desde la raíz de bigdata-game.
-if not DATA_DIR.exists():
-    PROJECT_DIR = Path(__file__).resolve().parents[3]
-    DATA_DIR = PROJECT_DIR / DATA_DIR
-    REPORTS_DIR = PROJECT_DIR / REPORTS_DIR
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+names = ['snapshots', 'resources', 'activities', 'needs', 'social']
+tables = {}
+for name in names:
+    path = OUTPUT_DIR / f'{name}.csv'
+    if not path.exists():
+        raise FileNotFoundError(f'No se encuentra: {path}')
+    tables[name] = pd.read_csv(path, dtype={'run_id': 'string'})
 
-REPORTS_DIR.mkdir(exist_ok=True)
-
-snapshots = pd.read_csv(DATA_DIR / 'snapshots.csv')
-resources = pd.read_csv(DATA_DIR / 'resources.csv')
-activities = pd.read_csv(DATA_DIR / 'activities.csv')
-needs = pd.read_csv(DATA_DIR / 'needs.csv')
-social = pd.read_csv(DATA_DIR / 'social.csv')
-
-
-#### 2. Contar los cambios de actividad y calcular sus porcentajes.
+snapshots = tables['snapshots']
+resources = tables['resources']
+activities = tables['activities']
+needs = tables['needs']
+social = tables['social']
 
 activity_counts = activities['activity'].value_counts()
-activity_proportions = activities['activity'].value_counts(normalize=True)
-activity_percent = (activity_proportions * 100).round(1)
-
-print('\nACTIVIDADES')
-print(activity_counts)
-print('\nPORCENTAJES')
-print(activity_percent)
-
-
-#### 3. Calcular el cambio neto registrado de cada recurso.
-
-resource_groups = resources.groupby('resource_type')
-delta_groups = resource_groups['amount_delta']
-resource_balance = delta_groups.sum()
-resource_balance = resource_balance.sort_values(ascending=False)
-
-
-
-print('\nBALANCE NETO DE RECURSOS')
-print(resource_balance)
-
-
-#### 4. Separar los incrementos y las reducciones de recursos.
-
-gains = resources[resources['amount_delta'] > 0]
-spending = resources[resources['amount_delta'] < 0].copy()
-spending['amount_delta'] = spending['amount_delta'].abs()
-
-print('\nINCREMENTOS REGISTRADOS')
-print(gains.groupby('resource_type')['amount_delta'].sum())
-
-print('\nREDUCCIONES REGISTRADAS')
-print(spending.groupby('resource_type')['amount_delta'].sum())
-
-
-#### 5. Contar las necesidades que llegaron al estado crítico.
-
-critical_needs = needs[needs['state'] == 'critical']
-critical_counts = critical_needs['need_type'].value_counts()
-
-print('\nNECESIDADES CRÍTICAS')
-print(critical_counts)
-
-
-#### 6. Contar los tipos de interacción social.
-
+activity_percent = (activities['activity'].value_counts(normalize=True) * 100).round(1)
+resource_balance = resources.groupby('resource_type')['amount_delta'].sum().sort_values(
+    ascending=False
+)
+gains = resources.loc[resources['amount_delta'] > 0].groupby('resource_type')[
+    'amount_delta'
+].sum()
+reductions = resources.loc[resources['amount_delta'] < 0].groupby('resource_type')[
+    'amount_delta'
+].sum().abs()
+critical_needs = needs.loc[needs['state'].eq('critical')]
 interaction_counts = social['interaction_type'].value_counts()
 
-print('\nINTERACCIONES SOCIALES')
-print(interaction_counts)
+print('ACTIVIDADES\n', activity_counts.to_string(), sep='')
+print('\nPORCENTAJES\n', activity_percent.to_string(), sep='')
+print('\nBALANCE DE RECURSOS\n', resource_balance.to_string(), sep='')
+print('\nINCREMENTOS\n', gains.to_string(), sep='')
+print('\nREDUCCIONES\n', reductions.to_string(), sep='')
+print('\nNECESIDADES CRITICAS\n', critical_needs['need_type'].value_counts().to_string(), sep='')
+print('\nINTERACCIONES\n', interaction_counts.to_string(), sep='')
 
-
-#### 7. Comparar la primera y la última fotografía disponibles.
-
-ordered_snapshots = snapshots.sort_values(['tick', 'event_index'])
-last = None
-
-print('\nEVOLUCIÓN DEL MUNDO')
-if ordered_snapshots.empty:
-    print('No hay snapshots para comparar.')
-else:
-    first = ordered_snapshots.iloc[0]
-    last = ordered_snapshots.iloc[-1]
-
-    for column in [
-        'population', 'constructed_buildings',
-        'wood_stock', 'food_stock', 'gold_stock',
-    ]:
-        change = last[column] - first[column]
-        print(column, ':', first[column], '->', last[column],
-              '(cambio:', change, ')')
-
-
-#### 8. Guardar las métricas seleccionadas en un resumen.
-
-if last is None:
-    final_population = None
-    final_buildings = None
-else:
-    final_population = last['population']
-    final_buildings = last['constructed_buildings']
-
+ordered = snapshots.sort_values(['tick', 'event_index'])
+last = ordered.iloc[-1] if not ordered.empty else None
 summary = pd.DataFrame([
     {'metric': 'events_activity', 'value': len(activities)},
     {'metric': 'events_resource', 'value': len(resources)},
     {'metric': 'critical_needs', 'value': len(critical_needs)},
     {'metric': 'social_interactions', 'value': len(social)},
-    {'metric': 'final_population', 'value': final_population},
-    {'metric': 'final_buildings', 'value': final_buildings},
+    {'metric': 'final_population', 'value': None if last is None else last['population']},
+    {'metric': 'final_buildings', 'value': None if last is None else last['constructed_buildings']},
 ])
-
-output = REPORTS_DIR / 'metrics_summary.csv'
-summary.to_csv(output, index=False)
-
-print('\nINFORME GUARDADO')
-print(output, '->', len(summary), 'filas')
+report_file = REPORTS_DIR / 'metrics_summary.csv'
+summary.to_csv(report_file, index=False)
+print('\nInforme:', report_file)

@@ -1,167 +1,47 @@
-#Importa Path, una clase de Python para trabajar con rutas de archivos y carpetas.
 from pathlib import Path
 
-# En lugar de escribir rutas como simples textos:
-# "data/raw/archivo.jsonl"
-# puedes tratarlas como objetos:
-# Path("data/raw/archivo.jsonl")
-# Esto facilita operaciones como crear carpetas, comprobar si existen archivos, construir rutas, etc.
-
-
-#Pandas se utiliza para trabajar con datos en forma de tablas mediante objetos llamados DataFrame
 import pandas as pd
 
-# Aquí guardamos en la variable DATASET la ruta del archivo que vamos a analizar.
-DATASET = Path('data/raw/nevworld_1150427077545796967_20261007_070934.jsonl'
 
-)
-
-# Aquí definimos la carpeta de salida.
+RAW_DIR = Path('data/raw')
 OUTPUT_DIR = Path('data/processed')
+REPORTS_DIR = Path('reports')
+RAW_FILE = RAW_DIR / 'nevworld_1150427077545796967_20261007_070934.jsonl'
 
-# Si se ejecuta desde la carpeta del script en el IDE, completamos las rutas
-# desde la raíz de bigdata-game.
-if not DATASET.exists():
-    PROJECT_DIR = Path(__file__).resolve().parents[3]
-    DATASET = PROJECT_DIR / DATASET
-    OUTPUT_DIR = PROJECT_DIR / OUTPUT_DIR
+if not RAW_FILE.exists():
+    raise FileNotFoundError(f'No se encuentra el RAW: {RAW_FILE}')
 
-if not DATASET.exists():
-    raise FileNotFoundError(f'No se encuentra: {DATASET.resolve()}')
-
-#Esta línea crea la carpeta: data/processed si todavía no existe.
-# parents=True -> crea también las carpetas superiores si hacen falta.
-# exist_ok=True -> si la carpeta ya existe, no des error.
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+df = pd.read_json(RAW_FILE, lines=True, dtype={'run_id': 'string'})
 
+required_raw = ['run_id', 'event_index', 'tick', 'type', 'villager_id', 'prey_type']
+assert set(required_raw).issubset(df.columns), 'Faltan columnas necesarias en el RAW'
 
-# Pandas lee el archivo JSONL y lo convierte en un DataFrame.
-# lines=True -> indica que cada línea del archivo es un JSON independiente.
-df = pd.read_json(DATASET, lines=True)
-
-
-#{..."event_index":1065,"tick":50143,"type":"hunt_completed","villager_id":1166,"prey_type":"deer"}
-# Evento para caceria terminada
-print("Cacerias: ")
-cacerias = df[df["type"] == "hunt_completed"]
-
-print(cacerias[
-    ["event_index", "tick", "villager_id", "prey_type"]
-])
-
-
-
-def event_table(event_type, columns):
-
-    # lista con las columnas que siempre queremos y además las que hayas pasado a la función.
-    selected = ['run_id', 'event_index', 'tick', *columns]
-
-    # Esta parte evita errores si alguna columna no existe.
-
-    available = [
-        column for column in selected
-        if column in df.columns
-    ]
-
-
-    # Aquí hacemos dos operaciones al mismo tiempo: Filtrar filas y seleccionar columnas.
-    # "dame las filas cuyo type sea igual al evento que busco, pero únicamente con las columnas de available"
-    # Así que aunque el DataFrame original tenga 30 columnas, nuestra tabla podría quedarse con solo 4, las que hemos indicado.
-    # .copy() se usa para crear una copia independiente de los datos que acabas de seleccionar,
-    # sin .copy(), Pandas a veces puede tratar esa selección como una especie de vista del DataFrame original, no como una tabla
-    # totalmente independiente, pudiendo ocasionar conflictos si modificamos algo.
-    table = df.loc[
-        df['type'] == event_type,
-        available,
-    ].copy()
-
-
-    # Creamos una nueva columna simulation_day y su valor es la división
-    # entre table['tick'] y 12000, que nos permite sacar cuantos días han transcurrido.
-    # Se crea también cuando la tabla está vacía para conservar la cabecera del CSV.
-    # En NevWorld 12000 ticks es un día.
-    table['simulation_day'] = table['tick'] // 12000
-
-    return table
-
-# Crear las tablas python
-# Creamos las tablas usando la anterior función indicando el tipo de evento que queremos.
-# obtener y las columnas que nos puedan interesar.
-
-tables = {
-    # hunts será el nombre de nuestra tabla/CSV.
-    # hunt_completed es el type real del evento.
-    "hunts": event_table("hunt_completed", [
-        "villager_id",
-        "prey_type"
-    ])
-}
-
-hunts = tables["hunts"]
-
-# fijo las columnas
-columnas_de_salida = [
-    "run_id",
-    "event_index",
-    "tick",
-    "villager_id",
-    "prey_type",
-    "simulation_day"
+output_columns = [
+    'run_id', 'event_index', 'tick', 'villager_id', 'prey_type',
+    'simulation_day',
 ]
+hunts = df.loc[
+    df['type'].eq('hunt_completed'),
+    output_columns[:-1],
+].copy()
+hunts['simulation_day'] = hunts['tick'] // 12000
+hunts = hunts.reindex(columns=output_columns)
 
-# Fija las columnas y su orden.
-# Si alguna no existe, Pandas la crea vacía.
-hunts = hunts.reindex(columns=columnas_de_salida)
-
-# Actualizamos también el valor guardado en el diccionario.
-tables["hunts"] = hunts
-
-# Número real de hunt_completed que existen en el RAW.
-cantidad_cacerias = (df["type"] == "hunt_completed").sum()
-
-# El CSV debe tener exactamente una fila
-# por cada hunt_completed.
-assert len(hunts) == cantidad_cacerias, \
-    "El número de cacerías no coincide"
-
-
-# No puede repetirse la pareja run_id + event_index.
-assert not hunts.duplicated(
-    ["run_id", "event_index"]
-).any(), "Hay eventos de caza duplicados"
-
-
-# Estas columnas son obligatorias si existe una cacería.
-campos_obligatorios = [
-    "run_id",
-    "event_index",
-    "tick",
-    "villager_id",
-    "prey_type"
-]
-
+expected = int(df['type'].eq('hunt_completed').sum())
+assert len(hunts) == expected, 'El numero de cacerias no coincide'
+assert not hunts.duplicated(['run_id', 'event_index']).any(), 'Hay cacerias duplicadas'
 if not hunts.empty:
+    assert hunts[output_columns].notna().all().all(), 'Hay campos obligatorios vacios'
+    assert hunts['simulation_day'].eq(hunts['tick'] // 12000).all(), \
+        'simulation_day es incorrecto'
 
-    # Ninguno de los campos obligatorios puede tener NaN.
-    assert hunts[
-        campos_obligatorios
-    ].notna().all().all(), \
-        "Hay campos obligatorios ausentes"
+output_file = OUTPUT_DIR / 'hunts.csv'
+hunts.to_csv(output_file, index=False)
 
-    # Comprobamos que simulation_day se calculó correctamente.
-    assert (
-        hunts["simulation_day"]
-        == hunts["tick"] // 12000
-    ).all(), "simulation_day es incorrecto"
-
-
-# Exportar
-
-output = OUTPUT_DIR / "hunts.csv"
-
-# index=False evita guardar el índice interno de Pandas.
-hunts.to_csv(output, index=False)
-
-# El ejercicio pide mostrar la ruta y número de filas.
-print("Archivo generado:", output)
-print("Número de filas:", len(hunts))
+print('VALIDACIONES: OK')
+print('Archivo generado:', output_file)
+print('Cacerias completadas:', len(hunts))
+print('Cazadores distintos:', hunts['villager_id'].nunique())
+print('\nCacerias por presa')
+print(hunts['prey_type'].value_counts().to_string())
