@@ -1,169 +1,113 @@
-# Fase 06: lote e integridad
+# ¿Ha llegado la misma partida?
 
-El pipeline aceptó 6 archivos, 6 partidas y 14.644 eventos. Genera all_events.parquet, manifest.csv y pipeline_run.csv.
+El equipo de análisis recibe partidas de otros jugadores. Antes de trabajar con ellas quiere comprobar que los archivos recibidos conservan el contenido que tenían al preparar el envío.
 
-| Archivo | Esperado | Recibido | SHA | Conclusión |
-| --- | ---: | ---: | --- | --- |
-| partida_A.jsonl | 1.755.298 | 1.755.298 | Coincide | Intacta |
-| partida_B.jsonl | 1.755.298 | 1.755.297 | No coincide | Cambiada |
+Trabajad **por parejas**, alternando los papeles de emisor y receptor. Enviaréis dos copias de un JSONL: una intacta y otra modificada después de registrar su huella. **Duración orientativa: 20–25 minutos.**
 
-Había una referencia completa llamada referemcia.txt y otra incompleta llamada referencia.txt. El código prueba ambas sin recalcularlas.
+## Teoría de apoyo
 
-## Respuestas
+Una huella SHA-256 depende del contenido, no del nombre ni de la carpeta del archivo. Para verificar una copia necesitamos una huella de referencia calculada **antes** de modificarla o enviarla.
 
-1. SHA-256 mira los bytes, no el nombre.
-2. El tamaño puede quedar igual aunque cambie un carácter. Aquí B perdió un byte.
-3. La huella no localiza el campo; compararía los JSONL.
-4. Se guarda antes para no comparar el archivo cambiado consigo mismo.
-5. Coincidir prueba igualdad con la referencia, no que el dato original sea verdadero.
+| Operación de Python | Utilidad |
+| --- | --- |
+| `Path('ruta')` | Identificar el archivo que vamos a leer. |
+| `path.read_bytes()` | Leer su contenido como bytes. |
+| `sha256(...).hexdigest()` | Calcular la huella y obtenerla como texto. |
+| `huella_actual == huella_esperada` | Comprobar si ambas huellas coinciden. |
+| `path.stat().st_size` | Consultar el tamaño en bytes. |
 
-## Código del pipeline
+Solo necesitas `hashlib` y `pathlib`, incluidos en Python. No hace falta pandas ni ejecutar el pipeline del tema 09.
 
-~~~python
-from hashlib import sha256
+## 1. Prepara dos copias y registra su referencia
+
+El emisor prepara **dos copias del mismo archivo original**, no dos partidas diferentes. Puedes hacerlo desde el explorador de archivos:
+
+1. Elige **un solo JSONL** de una partida finalizada que tengas en `data/raw`.
+2. Crea la carpeta `data/intercambio/envio` dentro de `bigdata-game`.
+3. Copia el JSONL elegido a esa carpeta y renombra **la copia** como `partida_A.jsonl`.
+4. Dentro de `data/intercambio/envio`, duplica `partida_A.jsonl` y llama a esa segunda copia `partida_B.jsonl`.
+
+Ahora A y B contienen exactamente los mismos datos y solo cambia su nombre. El JSONL original permanece en `data/raw`, con su nombre y contenido intactos. Todas las modificaciones posteriores se harán sobre una de las copias de `envio`.
+
+Antes de modificar ninguna de las dos copias:
+
+1. Calcula sus huellas y tamaños mediante un pequeño script `scripts/actividades/06_verificar_envio.py`.
+2. Comprueba que las dos huellas coinciden aunque los nombres sean diferentes.
+3. Guarda los resultados en `referencia.txt`, indicando nombre, tamaño y SHA-256 de cada archivo.
+4. Envía esa referencia a tu compañero por el canal de clase. El receptor debe conservarla sin modificar: será la referencia anterior a los cambios.
+
+Puedes empezar con este bloque y adaptarlo para comprobar ambos archivos:
+
+```python
 from pathlib import Path
-from time import perf_counter
-
-import pandas as pd
-
-
-RAW_DIR = Path('data/raw')
-OUTPUT_DIR = Path('data/processed')
-REPORTS_DIR = Path('reports')
-
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-files = sorted(RAW_DIR.glob('nevworld_*.jsonl'))
-if not files:
-    raise FileNotFoundError(f'No hay JSONL de NevWorld en {RAW_DIR}')
-
-start = perf_counter()
-frames = []
-manifest = []
-
-for path in files:
-    checksum = sha256(path.read_bytes()).hexdigest()
-    try:
-        frame = pd.read_json(path, lines=True, dtype={'run_id': 'string'})
-        valid_schema = (
-            not frame.empty
-            and 'schema_version' in frame.columns
-            and frame['schema_version'].eq(2).all()
-        )
-        status = 'accepted' if valid_schema else 'rejected'
-        error = ''
-    except (ValueError, OSError) as exc:
-        frame = pd.DataFrame()
-        valid_schema = False
-        status = 'rejected'
-        error = str(exc)
-
-    manifest.append({
-        'file': path.name,
-        'bytes': path.stat().st_size,
-        'rows': len(frame),
-        'sha256': checksum,
-        'status': status,
-        'error': error,
-    })
-    if valid_schema:
-        frame['source_file'] = path.name
-        frames.append(frame)
-
-pd.DataFrame(manifest).to_csv(REPORTS_DIR / 'manifest.csv', index=False)
-if not frames:
-    raise ValueError('Ningun archivo utiliza el esquema 2')
-
-events = pd.concat(frames, ignore_index=True)
-required = ['run_id', 'event_index', 'tick', 'type']
-assert set(required).issubset(events.columns), 'Faltan columnas comunes'
-assert events[required].notna().all().all(), 'Hay campos comunes vacios'
-
-duplicates = int(events.duplicated(['run_id', 'event_index']).sum())
-if duplicates:
-    raise ValueError(f'Se detectaron {duplicates} eventos duplicados')
-
-events = events.sort_values(['run_id', 'event_index']).reset_index(drop=True)
-ticks_ok = events.groupby('run_id')['tick'].apply(
-    lambda ticks: ticks.is_monotonic_increasing
-).all()
-assert ticks_ok, 'Los ticks retroceden en alguna partida'
-
-events.to_parquet(OUTPUT_DIR / 'all_events.parquet', index=False)
-elapsed = perf_counter() - start
-run_report = pd.DataFrame([{
-    'files_found': len(files),
-    'files_accepted': len(frames),
-    'sessions': events['run_id'].nunique(),
-    'events': len(events),
-    'seconds': round(elapsed, 3),
-}])
-run_report.to_csv(REPORTS_DIR / 'pipeline_run.csv', index=False)
-print(run_report.to_string(index=False))
-~~~
-
-## Código de verificación
-
-~~~python
 from hashlib import sha256
-from pathlib import Path
 
+# Esta ruta se interpreta desde la raíz de bigdata-game.
+path = Path('data/intercambio/envio/partida_A.jsonl')
+# La huella representa los bytes del archivo que acabamos de leer.
+huella = sha256(path.read_bytes()).hexdigest()
+print(path.name, path.stat().st_size, huella)
+```
 
-RAW_DIR = Path('data/raw')
-OUTPUT_DIR = Path('data/processed')
-REPORTS_DIR = Path('reports')
-ENVIO_DIR = RAW_DIR.parent / 'intercambio' / 'envio'
-REFERENCE_FILES = [
-    ENVIO_DIR / 'referencia.txt',
-    ENVIO_DIR / 'referemcia.txt',  # nombre antiguo que existe en esta copia
-]
-NAMES = ['partida_A.jsonl', 'partida_B.jsonl']
+Ejecuta desde la raíz de `bigdata-game`:
 
+```powershell
+python scripts/actividades/06_verificar_envio.py
+```
 
-def checksum(path):
-    return sha256(path.read_bytes()).hexdigest()
+## 2. Introduce un cambio pequeño y envía los archivos
 
+El emisor deja una copia intacta y modifica **solo la otra** con VS Code. No le digas todavía al receptor cuál has elegido.
 
-def read_reference(path):
-    references = {}
-    for line in path.read_text(encoding='utf-8').splitlines():
-        parts = line.split()
-        if len(parts) == 3 and parts[0] in NAMES and parts[1].isdigit():
-            references[parts[0]] = {
-                'size': int(parts[1]),
-                'sha256': parts[2].lower(),
-            }
-    return references
+- Cambia un único dígito de un valor numérico, por ejemplo `100` por `900`, si encuentras ese valor. También puedes cambiar otro dígito por uno distinto manteniendo un número JSON válido.
+- No cambies `schema_version`, `run_id` ni `event_index`. No añadas ni elimines líneas y conserva la codificación y los saltos de línea.
+- Guarda la copia modificada. **No actualices las huellas de `referencia.txt`: deben seguir siendo las calculadas antes del cambio.**
 
+Anota en privado la línea, el campo y el valor anterior y posterior. Envía ambos JSONL como archivos adjuntos o en un ZIP; no pegues su contenido como texto en un mensaje. El receptor los guardará en `data/intercambio/recibido`.
 
-references = {}
-reference_used = None
-for candidate in REFERENCE_FILES:
-    if candidate.exists():
-        candidate_references = read_reference(candidate)
-        if set(candidate_references) == set(NAMES):
-            references = candidate_references
-            reference_used = candidate
-            break
-if not references:
-    raise ValueError('No hay una referencia valida con nombre, tamano y SHA-256 para A y B')
+## 3. Verifica lo recibido
 
-print('Referencia utilizada:', reference_used)
-print('RESULTADO DE LA VERIFICACION')
-for name in NAMES:
-    path = ENVIO_DIR / name
-    expected = references[name]
-    if not path.exists():
-        print(f'{name}: NO RECIBIDO')
-        continue
-    current_hash = checksum(path)
-    current_size = path.stat().st_size
-    result = 'COINCIDE' if current_hash == expected['sha256'] else 'NO COINCIDE'
-    print(f'\n{name}')
-    print('Tamano esperado:', expected['size'])
-    print('Tamano recibido:', current_size)
-    print('SHA esperado:', expected['sha256'])
-    print('SHA calculado:', current_hash)
-    print('Resultado:', result)
-~~~
+El receptor adapta su script para recorrer los dos archivos recibidos y comparar cada huella actual con la referencia correspondiente. Las huellas esperadas pueden guardarse en un diccionario de Python, con el nombre de archivo como clave.
 
+Debe mostrar para cada archivo:
+
+- Nombre y tamaño recibido.
+- Huella esperada y huella calculada.
+- `COINCIDE` o `NO COINCIDE`.
+
+Si falta un archivo, indica `NO RECIBIDO`; no lo clasifiques como una coincidencia. No calcules las huellas esperadas a partir de los archivos recibidos: eso compararía el archivo consigo mismo.
+
+Antes de que el emisor revele el cambio, completa:
+
+| Archivo | Tamaño esperado | Tamaño recibido | ¿Coincide SHA-256? | Conclusión |
+| --- | --- | --- | --- | --- |
+| partida_A.jsonl | 1.755.298 | 1.755.298 | Sí | `COINCIDE`: copia íntegra. |
+| partida_B.jsonl | 1.755.298 | 1.755.297 | No | `NO COINCIDE`: copia modificada. |
+
+Lo esperado es que una copia coincida y la otra no. Si ambas coinciden, revisad si se guardó y envió el cambio o se recalculó la referencia. Si ninguna coincide, revisad si el editor o el envío modificaron también la codificación o los saltos de línea. No ajustéis la referencia para conseguir el resultado esperado.
+
+## 4. Intercambia los papeles y explica
+
+Repetid el ejercicio cambiando emisor y receptor. Usad subcarpetas distintas para cada ronda, conservando sus referencias y resultados.
+
+Responded brevemente:
+
+1. ¿Por qué pueden coincidir las huellas de dos archivos con distinto nombre?
+2. ¿Puede un archivo mantener el tamaño y tener una huella diferente? Utilizad vuestro resultado.
+3. ¿Permite la huella saber qué campo cambió? ¿Cómo comprobaríais el cambio concreto?
+4. ¿Por qué calculamos y conservamos la referencia antes de modificar la copia?
+5. ¿Una coincidencia demuestra que los datos de la partida son correctos o solo que coinciden con la referencia?
+
+1. Porque SHA-256 depende del contenido, no del nombre.
+2. Sí; cambiar bytes sin variar su cantidad puede cambiar la huella. En esta ejecución B también cambió de tamaño.
+3. No. Para localizarlo compararíamos ambos archivos línea a línea.
+4. Porque esa huella conserva el estado original con el que debe compararse la copia.
+5. Solo demuestra que el contenido coincide con la referencia, no que los datos sean correctos.
+
+Salida: A `COINCIDE`; B `NO COINCIDE`. El cambio localizado está en el primer evento: `event_index` pasó de 11 a 0.
+
+## Entrega
+
+Entregad el script de verificación, las referencias, las tablas de resultados de ambas rondas y las respuestas en un documento breve. Incluid el cambio realizado y la salida de consola. Identificad quién fue emisor y receptor en cada ronda.
+
+**Utilidad:** habéis comprobado si lo recibido conserva el contenido registrado antes del envío. El manifiesto del tema 09 preparaba las huellas; en esta actividad las habéis utilizado para tomar una decisión. La referencia se considera fiable para el ejercicio: un checksum por sí solo no protege frente a alguien que sustituya tanto el archivo como su huella.

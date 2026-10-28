@@ -1,85 +1,75 @@
-# Fase 05: caza con SQL
+# El parte de caza también habla SQL
 
-DuckDB devuelve 61 sheep y 3 deer, igual que pandas. El CSV ocupa 6.295 bytes y el Parquet 5.165.
+Ya has contado las cacerías con pandas y representado las presas en un gráfico. Ahora el creador de NevWorld quiere obtener **el mismo recuento consultando un archivo Parquet con SQL**. ¿Cambian los resultados al cambiar de herramienta?
 
-## Respuestas
+Trabaja con la misma partida de las actividades anteriores y el tema 08. **Duración orientativa: 15–20 minutos.**
 
-**¿Qué representa una fila?** Una presa y su número de cacerías, no comida.
+## Teoría de apoyo
 
-**¿Qué hace AS hunt_count?** Nombra COUNT(*). Si cambia, también cambian ORDER BY y las referencias posteriores.
+| Pieza | Para qué sirve |
+| --- | --- |
+| pandas | Leer el CSV y trabajar con su DataFrame. |
+| PyArrow | Biblioteca que pandas utiliza para escribir Parquet; no necesitas importarla directamente. |
+| Parquet | Formato de archivo; no es una biblioteca ni una consulta. |
+| DuckDB | Motor que ejecuta SQL desde tu script Python. |
+| `COUNT(*)` | Contar las filas de cada grupo. |
+| `GROUP BY` | Reunir filas que comparten un valor. |
+| `AS` | Dar un nombre a una columna del resultado; no modifica el archivo original. |
+| `ORDER BY ... DESC` | Ordenar de mayor a menor. |
+| `.fetchdf()` | Recuperar el resultado SQL como DataFrame. |
 
-**¿Qué ocupa menos?** Aquí Parquet, pero no siempre: depende de los datos y del uso.
+## 1. Conserva la información en otro formato
 
-La salida es **reports/hunts_by_prey_sql.csv**.
+Crea **un único archivo**: `scripts/actividades/05_caza_sql.py`, dentro de `bigdata-game`. Todos los pasos siguientes van en ese archivo, uno debajo de otro. No añadas código al script de la teoría.
 
-## Ejecución
+1. Importa `Path`, pandas como `pd` y `duckdb`.
+2. Lee `data/processed/hunts.csv`, creado en la actividad 02. Si falta, termina esa actividad primero.
+3. Comprueba que existe `prey_type` y que ninguna cacería tiene esa columna sin informar. No borres registros para ocultar errores.
+4. Crea `data/processed/parquet` si hace falta y guarda `hunts.parquet` utilizando `to_parquet(..., engine='pyarrow', index=False)`.
+5. Muestra los tamaños del CSV y del Parquet en bytes mediante `ruta.stat().st_size`.
 
-~~~powershell
-python scripts/actividades_1/fase05/05_caza_sql.py
-~~~
+## 2. Pregunta por las presas con SQL
 
-## Código
+Debajo de la conversión, abre una conexión con `duckdb.connect()`. Guarda una consulta SQL en una variable Python llamada `hunt_query`, entre comillas triples.
 
-~~~python
-from pathlib import Path
+La consulta debe:
 
-import duckdb
-import pandas as pd
+- Leer `data/processed/parquet/hunts.parquet` mediante `read_parquet`.
+- Agrupar por `prey_type`.
+- Mostrar la presa y el número de cacerías completadas registradas de cada tipo.
+- Llamar **`hunt_count`** a la columna calculada.
+- Ordenar por ese recuento de mayor a menor.
 
+Ejecuta la consulta con `connection.execute(hunt_query).fetchdf()` y muestra el resultado. No pegues el SQL directamente en la terminal: es texto que Python entrega a DuckDB.
 
-RAW_DIR = Path('data/raw')
-OUTPUT_DIR = Path('data/processed')
-REPORTS_DIR = Path('reports')
-PARQUET_DIR = OUTPUT_DIR / 'parquet'
-CSV_FILE = OUTPUT_DIR / 'hunts.csv'
-PARQUET_FILE = PARQUET_DIR / 'hunts.parquet'
-REPORT_FILE = REPORTS_DIR / 'hunts_by_prey_sql.csv'
+## 3. Comprueba y guarda
 
-if not CSV_FILE.exists():
-    raise FileNotFoundError(f'No se encuentra: {CSV_FILE}')
+1. Comprueba que la suma de `hunt_count` coincide con el número de filas del CSV.
+2. Compara cada recuento con el que obtuviste en la actividad 03 y con las barras de la 04. Las presas empatadas pueden aparecer en distinto orden.
+3. Guarda el resultado como `reports/hunts_by_prey_sql.csv`, sin índice. Crea la carpeta si hace falta y cierra la conexión al final.
 
-table = pd.read_csv(CSV_FILE, dtype={'run_id': 'string'})
-assert 'prey_type' in table.columns, 'Falta la columna prey_type'
-if not table.empty:
-    assert table['prey_type'].notna().all(), 'Hay cacerias sin presa informada'
+Si `hunts.csv` tiene cabecera pero ninguna fila, muestra un aviso y guarda el resumen vacío con las columnas `prey_type` y `hunt_count`. No inventes presas. La suma de recuentos será cero.
 
-PARQUET_DIR.mkdir(parents=True, exist_ok=True)
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-table.to_parquet(PARQUET_FILE, engine='pyarrow', index=False)
+Ejecuta **en la terminal, desde la raíz de `bigdata-game`**, con el entorno del tema 08 activo:
 
-print('CSV:', CSV_FILE.stat().st_size, 'bytes')
-print('Parquet:', PARQUET_FILE.stat().st_size, 'bytes')
+```powershell
+python scripts/actividades/05_caza_sql.py
+```
 
-hunt_query = """
-    SELECT
-        prey_type,
-        COUNT(*) AS hunt_count
-    FROM read_parquet('data/processed/parquet/hunts.parquet')
-    GROUP BY prey_type
-    ORDER BY hunt_count DESC, prey_type
-"""
+## 4. Explica el resultado
 
-connection = duckdb.connect()
-try:
-    hunt_summary = connection.execute(hunt_query).fetchdf()
-finally:
-    connection.close()
+Responde brevemente:
 
-if hunt_summary.empty:
-    hunt_summary = pd.DataFrame(columns=['prey_type', 'hunt_count'])
+1. ¿Qué representa una fila del resultado? ¿Cuenta cacerías o unidades de comida?
+2. ¿Qué hace `AS hunt_count`? Si lo cambias por `AS total_cacerias`, ¿qué referencias posteriores debes actualizar?
+3. ¿Qué archivo ocupa menos en tu partida? ¿Demuestra eso que ese formato será siempre mejor?
 
-assert int(hunt_summary['hunt_count'].sum()) == len(table), \
-    'El recuento SQL no coincide con el CSV'
+Partida: `20261007_070934_1150427077545796967_ff0aa8620a704dcf8c0832b521d2af20`. CSV: 6.295 bytes; Parquet: 5.165 bytes. SQL devuelve `sheep` 61 y `deer` 3, igual que pandas y el gráfico; validaciones: OK.
 
-pandas_counts = table['prey_type'].value_counts().sort_index()
-sql_counts = hunt_summary.set_index('prey_type')['hunt_count'].sort_index()
-assert pandas_counts.equals(sql_counts.astype(pandas_counts.dtype)), \
-    'SQL y pandas dan recuentos distintos'
+1. Cada fila resume un tipo de presa y cuenta cacerías, no unidades de comida.
+2. `AS hunt_count` nombra la columna calculada; al renombrarla hay que actualizar `ORDER BY`, validaciones y accesos posteriores.
+3. Parquet ocupa menos en esta partida, pero eso no demuestra que siempre sea mejor: depende de los datos y del uso.
 
-hunt_summary.to_csv(REPORT_FILE, index=False)
-print('\nRESULTADO SQL')
-print(hunt_summary.to_string(index=False))
-print('\nVALIDACIONES: OK')
-print('Informe:', REPORT_FILE)
-~~~
+## Entrega
 
+Entrega el script, `reports/hunts_by_prey_sql.csv` y una ficha breve con los tamaños, la comparación con la actividad 03 y las tres respuestas. Identifica la partida utilizada. No modifiques el RAW ni `hunts.csv`.

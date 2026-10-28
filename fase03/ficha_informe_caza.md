@@ -1,111 +1,126 @@
-# Fase 03: informe de caza
+# El informe de caza: de las tablas a las conclusiones
 
-| Presa | Cacerías | Porcentaje |
-| --- | ---: | ---: |
-| sheep | 61 | 95,3 % |
-| deer | 3 | 4,7 % |
+El creador de NevWorld ya tiene tu parte de caza, pero necesita un resumen: **qué presas aparecen más, cómo se reparten las cacerías registradas por día y cómo cambió la comida disponible**. Además, quiere comprobar esta afirmación: «Si aumentó la comida, fue gracias a la caza».
 
-Por días: 4→3, 5→2, 6→3, 7→5, 8→4, 9→3, 11→1, 16→5, 17→8, 18→5, 19→9, 20→3, 21→7, 22→3 y 23→3.
+Tu misión es calcular métricas y explicar qué permiten afirmar. Utiliza los datos de tu propia partida y las operaciones del tema 06. No necesitas gráficas, unir tablas ni modificar el RAW o los CSV procesados.
 
-En comida hubo 225 cambios: +430, -257 y balance +173.
+## Teoría de apoyo
 
-## Respuestas
+Python es el lenguaje; pandas es la biblioteca que permite trabajar con tablas. `pd.read_csv()` devuelve un DataFrame. Al seleccionar una columna, como `hunts['prey_type']`, obtienes una Series. Los siguientes métodos pertenecen a pandas:
 
-1. Gana la oveja: 61 frente a 3.
-2. El porcentaje es de cacerías completadas; el total es 64.
-3. El día 19 tuvo nueve finales, pero eso no demuestra más tiempo cazando.
-4. +173 es cambio neto, no stock final; falta el stock inicial.
-5. No se prueba que toda subida venga de caza. Faltaría enlazar cada aumento con su cacería.
+| Para… | Operación que puedes reutilizar |
+| --- | --- |
+| Contar las apariciones de cada valor | `tabla['columna'].value_counts()` |
+| Obtener porcentajes | `value_counts(normalize=True) * 100` |
+| Redondear a un decimal | `.round(1)` |
+| Seleccionar filas que cumplen una condición | `tabla[tabla['columna'] == valor]` |
+| Agrupar y sumar una cantidad | `tabla.groupby('grupo')['cantidad'].sum()` |
+| Ordenar una Series por sus etiquetas | `.sort_index()` |
+| Obtener cantidades sin signo negativo | `.abs()` |
+| Saber si una tabla no tiene filas | `.empty` |
+| Exportar una tabla sin su índice interno | `.to_csv(ruta, index=False)` |
 
-## Ejecución
+**Una operación nueva:** `.sort_index()` ordena por las etiquetas de la Series. Si las etiquetas son días, permite mostrarlos cronológicamente. `.sort_values()` ordenaría por los valores de la métrica. Por ejemplo, con día 2 → 5 cacerías y día 1 → 2 cacerías, ordenar por índice muestra primero el día 1.
 
-~~~powershell
-python scripts/actividades_1/fase03/03_informe_caza.py
-~~~
+`len()`, `print()`, `if`, `for`, las listas y los diccionarios pertenecen a Python. Una máscara de comparación selecciona filas; una agrupación organiza filas para calcular un resumen. No son la misma operación.
 
-## Código
+## 1. Prepara las preguntas y los datos
 
-~~~python
-from pathlib import Path
+Crea `scripts/actividades/03_informe_caza.py` dentro de `bigdata-game`. Carga `data/processed/hunts.csv`, creado en la actividad 02, y `data/processed/resources.csv`, generado en la teoría. Ambos deben corresponder a la misma partida. Si falta `hunts.csv`, termina la actividad anterior; no lo sustituyas por datos inventados.
 
-import pandas as pd
+Antes de calcular, completa esta ficha:
 
+| Pregunta | Tabla y columnas necesarias | Operación y motivo |
+| --- | --- | --- |
+| ¿Cuántas cacerías completadas se registraron? | `hunts`; filas | `len()`: 64. |
+| ¿Cuántas corresponden a cada tipo de presa? | `hunts.prey_type` | `value_counts()`: `sheep` 61, `deer` 3. |
+| ¿Qué porcentaje representa cada presa? | `hunts.prey_type` | `value_counts(normalize=True)`: 95,3 % y 4,7 %. |
+| ¿Cuántas cacerías se registraron en cada día observado? | `hunts.simulation_day` | `value_counts().sort_index()`: recuento cronológico. |
+| ¿Cuánto aumentó, disminuyó y cambió en términos netos la comida? | `resources.resource_type`, `amount_delta` | Filtrar `food` y sumar positivos, negativos y total. |
 
-RAW_DIR = Path('data/raw')
-OUTPUT_DIR = Path('data/processed')
-REPORTS_DIR = Path('reports')
-HUNTS_FILE = OUTPUT_DIR / 'hunts.csv'
-RESOURCES_FILE = OUTPUT_DIR / 'resources.csv'
+Comprueba que existen las columnas necesarias, que no se repite `run_id` y `event_index` dentro de cada tabla y que los campos usados en los cálculos no tienen valores ausentes. Si detectas un problema, explica el error sin borrar filas para ocultarlo. No mezcles partidas.
 
-for path in (HUNTS_FILE, RESOURCES_FILE):
-    if not path.exists():
-        raise FileNotFoundError(f'No se encuentra: {path}')
+## 2. Resume el parte de caza
 
-hunts = pd.read_csv(HUNTS_FILE, dtype={'run_id': 'string'})
-resources = pd.read_csv(RESOURCES_FILE, dtype={'run_id': 'string'})
+Muestra en la consola:
 
-required_hunts = ['run_id', 'event_index', 'prey_type', 'simulation_day']
-required_resources = ['run_id', 'event_index', 'resource_type', 'amount_delta']
-assert set(required_hunts).issubset(hunts.columns), 'Faltan columnas en hunts.csv'
-assert set(required_resources).issubset(resources.columns), 'Faltan columnas en resources.csv'
-assert not hunts.duplicated(['run_id', 'event_index']).any(), 'Hay cacerias duplicadas'
-assert not resources.duplicated(['run_id', 'event_index']).any(), \
-    'Hay cambios de recursos duplicados'
-if not hunts.empty:
-    assert hunts[required_hunts].notna().all().all(), 'Hay datos de caza vacios'
-if not resources.empty:
-    assert resources[required_resources].notna().all().all(), \
-        'Hay datos de recursos vacios'
+1. El total de cacerías completadas registradas.
+2. El recuento por `prey_type`, de mayor a menor frecuencia.
+3. El porcentaje de cada tipo de presa, redondeado a un decimal.
+4. El recuento por `simulation_day`, ordenado por día, no por frecuencia.
 
-hunt_runs = set(hunts['run_id'].dropna().astype(str))
-resource_runs = set(resources['run_id'].dropna().astype(str))
-assert len(hunt_runs) <= 1 and len(resource_runs) <= 1, 'Hay varias partidas en un CSV'
-if hunt_runs and resource_runs:
-    assert hunt_runs == resource_runs, 'Los CSV pertenecen a partidas distintas'
+Explica qué representa una fila de `hunts.csv` y cuál es el denominador de los porcentajes.
 
-total_hunts = len(hunts)
-hunts_by_prey = hunts['prey_type'].value_counts()
-prey_percent_raw = hunts['prey_type'].value_counts(normalize=True) * 100
-prey_percent = prey_percent_raw.round(1)
-hunts_by_day = hunts['simulation_day'].value_counts().sort_index()
+Si la tabla está vacía, muestra un mensaje indicando que no hay cacerías completadas registradas. El total será cero; no intentes acceder al primer elemento de un recuento vacío ni inventes una presa predominante. Un día que no aparece en el recuento no es automáticamente un día observado con cero cacerías: este archivo no determina por sí solo todo el periodo de observación.
 
-print('TOTAL DE CACERIAS:', total_hunts)
-if hunts.empty:
-    print('No hay cacerias completadas registradas.')
-else:
-    print('\nCACERIAS POR PRESA\n', hunts_by_prey.to_string(), sep='')
-    print('\nPORCENTAJES\n', prey_percent.to_string(), sep='')
-    print('\nCACERIAS POR DIA\n', hunts_by_day.to_string(), sep='')
+## 3. Examina los cambios de comida
 
-food = resources.loc[resources['resource_type'].eq('food')]
-food_gains = food.loc[food['amount_delta'] > 0, 'amount_delta'].sum()
-food_reductions = food.loc[food['amount_delta'] < 0, 'amount_delta'].abs().sum()
-food_net_change = food['amount_delta'].sum()
+Filtra las filas de `resources` cuyo `resource_type` sea `food`. Después calcula:
 
-print('\nCAMBIOS DE COMIDA')
-print('Eventos:', len(food))
-print('Incrementos:', food_gains)
-print('Reducciones:', food_reductions)
-print('Balance neto:', food_net_change)
+- **Incrementos registrados:** suma de los `amount_delta` positivos.
+- **Reducciones registradas:** suma de las magnitudes de los `amount_delta` negativos; muéstrala como número positivo.
+- **Balance neto:** suma de todos los `amount_delta` de comida.
 
-assert hunts_by_prey.sum() == total_hunts, 'Falla el recuento por presa'
-assert hunts_by_day.sum() == total_hunts, 'Falla el recuento por dia'
-assert abs((food_gains - food_reductions) - food_net_change) < 0.000001, \
-    'Falla el balance de comida'
-if not hunts.empty:
-    assert abs(prey_percent_raw.sum() - 100) < 0.000001, 'Los porcentajes no suman 100'
+Ejemplo inventado: +12, −5 y +3 producen incrementos de 15, reducciones de 5 y balance de +10. No es el resultado que debes entregar: usa tus datos.
 
-summary = pd.DataFrame([
-    {'metric': 'hunt_events', 'value': total_hunts},
-    {'metric': 'food_change_events', 'value': len(food)},
-    {'metric': 'food_gains', 'value': food_gains},
-    {'metric': 'food_reductions', 'value': food_reductions},
-    {'metric': 'food_net_change', 'value': food_net_change},
-])
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-report_file = REPORTS_DIR / 'hunting_summary.csv'
-summary.to_csv(report_file, index=False)
-print('\nVALIDACIONES: OK')
-print('Informe:', report_file)
-~~~
+Si no hay eventos de comida, las tres sumas serán cero, pero muestra también un aviso. Ese cero significa que no hay variaciones registradas que sumar; no demuestra que el mundo no tuviera comida.
 
+## 4. Comprueba y guarda el informe
+
+Comprueba con `assert` que:
+
+- La suma de los recuentos por presa coincide con el total de cacerías.
+- La suma de los recuentos por día también coincide con ese total.
+- Los incrementos menos las reducciones coinciden con el balance de comida.
+
+Si hay cacerías, revisa que los porcentajes sin redondear sumen aproximadamente 100. Los porcentajes redondeados pueden no sumar exactamente 100. Para comparar números decimales puedes usar `abs(a - b) < 0.000001`: aquí `abs()` es una función de Python que mide la magnitud de la diferencia.
+
+Crea un DataFrame de resumen con dos columnas, `metric` y `value`, y estas cinco filas:
+
+| metric | Qué guardar en value |
+| --- | --- |
+| `hunt_events` | Total de cacerías completadas registradas |
+| `food_change_events` | Número de eventos de cambio de comida |
+| `food_gains` | Incrementos de comida registrados |
+| `food_reductions` | Reducciones de comida, como cantidad positiva |
+| `food_net_change` | Balance neto de comida |
+
+Guárdalo en `reports/hunting_summary.csv`, sin índice. Reutiliza `pd.DataFrame` con una lista de diccionarios como en la teoría. Los recuentos por presa y día y los porcentajes se incorporarán a la ficha, junto con la salida de las comprobaciones.
+
+Resultados: 64 cacerías; `sheep`: 61 (95,3 %), `deer`: 3 (4,7 %). Por día: 4→3, 5→2, 6→3, 7→5, 8→4, 9→3, 11→1, 16→5, 17→8, 18→5, 19→9, 20→3, 21→7, 22→3 y 23→3. Comida: 225 eventos, +430, −257 y balance +173. Validaciones: OK.
+
+Ejecuta desde la raíz de `bigdata-game`, con el entorno que tenga pandas:
+
+```powershell
+python scripts/actividades/03_informe_caza.py
+```
+
+## 5. Defiende tus conclusiones
+
+Responde utilizando tus resultados reales:
+
+1. ¿Qué presa o presas tienen el mayor recuento? Si hay empate, indícalo; si no hay datos, explica por qué no puedes responder.
+2. ¿El porcentaje de una presa representa porcentaje de cacerías, de aldeanos o de tiempo? Justifica el denominador.
+3. ¿El día con más cacerías fue necesariamente el día en que se dedicó más tiempo a cazar?
+4. ¿El balance neto indica las existencias finales de comida? ¿Qué información faltaría?
+5. ¿Puedes demostrar que todos los incrementos de comida se deben a la caza? ¿Qué vínculo entre eventos necesitarías para justificarlo?
+
+1. `sheep`, con 61 registros.
+2. Es porcentaje de cacerías: el denominador son las 64 filas de `hunts.csv`.
+3. No; se cuentan finalizaciones, no duración de la actividad.
+4. No; es el cambio neto. Faltan las existencias iniciales.
+5. No; haría falta vincular cada incremento con una cacería mediante identificador o relación temporal y causal.
+
+## Ampliación para l@s más rápid@s: contrastar con las fotografías
+
+Carga `snapshots.csv` de la misma partida, ordénalo por `tick` y `event_index` y calcula la diferencia de `food_stock` entre la primera y la última fotografía disponibles. Muestra también sus ticks.
+
+Antes de usar `.iloc`, comprueba si hay filas. Con una sola fotografía, explica por qué la diferencia de cero no demuestra estabilidad durante toda la partida.
+
+Compara esa diferencia con tu balance de comida. ¿Tienen necesariamente el mismo intervalo de observación? Explica por qué una discrepancia no prueba por sí sola un error. No fuerces la igualdad con un `assert`.
+
+## Entrega y valoración
+
+Entrega el script, `hunting_summary.csv` y una ficha con las decisiones de diseño, los recuentos y porcentajes, las comprobaciones y las cinco respuestas. Identifica el archivo RAW de origen y la partida utilizada. Si realizas la ampliación, incluye sus resultados y explicación.
+
+Se valorará la elección razonada de operaciones, los cálculos correctos, el tratamiento de tablas vacías y la prudencia al interpretar resultados. Las cifras pueden variar entre partidas.

@@ -1,69 +1,79 @@
-# Fase 04: el parte de caza visual
+# El parte de caza, de un vistazo
 
-Cada barra es una presa y el eje vertical cuenta cacerías completadas. Uso barras porque son categorías independientes. El PNG queda en **reports/charts/05_hunts_by_prey.png** y suma 64.
+Ya has transformado los eventos de caza y calculado sus métricas. Ahora el creador de NevWorld quiere **ver qué tipos de presa aparecen más en las cacerías completadas**, sin tener que leer toda la tabla.
 
-## Interpretación
+Convierte uno de los recuentos de la actividad 3 en un gráfico de barras. Trabaja con tu propia partida.
 
-**Observación.** Hay 61 ovejas y 3 ciervos.
+## Teoría de apoyo
 
-**Límite.** No muestra duración ni comida obtenida.
+Pandas prepara los datos; Matplotlib configura y guarda la figura. Para este gráfico puedes reutilizar:
 
-**Pregunta pendiente.** Para saber qué presa da más comida necesitaría la cantidad por cacería y una clave que enlace los eventos.
+| Para… | Utiliza… |
+| --- | --- |
+| Contar las cacerías por presa | `hunts['prey_type'].value_counts()` |
+| Crear la figura | `plt.figure(figsize=(8, 4))` |
+| Dibujar las barras de una Series | `counts.plot.bar(color='steelblue')` |
+| Escribir el título y los nombres de los ejes | `plt.title()`, `plt.xlabel()`, `plt.ylabel()` |
+| Inclinar y alinear las etiquetas | `plt.xticks(rotation=30, ha='right')` |
+| Ajustar los márgenes | `plt.tight_layout()` |
+| Guardar el PNG y cerrar la figura | `plt.savefig(ruta)` y `plt.close()` |
 
-## Ejecución
+`value_counts()` ordena por frecuencia de mayor a menor. Cada etiqueta de la Series será una categoría del eje horizontal y su valor será la altura de una barra.
 
-~~~powershell
-python scripts/actividades_1/fase04/04_grafico_caza.py
-~~~
+## 1. Decide qué vas a representar
 
-## Código
+Utiliza `data/processed/hunts.csv`, creado en la actividad 2. Si no existe, genera primero esa tabla. Antes de programar, responde:
 
-~~~python
-from pathlib import Path
+- ¿Qué representa cada barra?
+- ¿Qué cantidad y unidad aparecerán en el eje vertical?
+- ¿Por qué usar barras y no una línea que conecte las presas?
 
-import matplotlib
+- Cada barra representa un tipo de presa.
+- El eje vertical muestra número de cacerías completadas.
+- Las presas son categorías sin continuidad; una línea sugeriría una relación inexistente.
 
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import pandas as pd
+Título: **Cacerías completadas registradas por tipo de presa**.
 
+Elige un título que deje claro que se representan **cacerías completadas registradas**, no cantidades de comida obtenida.
 
-RAW_DIR = Path('data/raw')
-OUTPUT_DIR = Path('data/processed')
-REPORTS_DIR = Path('reports')
-CHARTS_DIR = REPORTS_DIR / 'charts'
-HUNTS_FILE = OUTPUT_DIR / 'hunts.csv'
-CHART_FILE = CHARTS_DIR / '05_hunts_by_prey.png'
+## 2. Crea el gráfico
 
-if not HUNTS_FILE.exists():
-    raise FileNotFoundError(f'No se encuentra: {HUNTS_FILE}')
+Crea `scripts/actividades/04_grafico_caza.py` dentro de `bigdata-game`. El script debe:
 
-hunts = pd.read_csv(HUNTS_FILE, dtype={'run_id': 'string'})
-required = ['run_id', 'event_index', 'prey_type']
-assert set(required).issubset(hunts.columns), 'Faltan columnas en hunts.csv'
-assert not hunts.duplicated(['run_id', 'event_index']).any(), 'Hay cacerias duplicadas'
-if not hunts.empty:
-    assert hunts[required].notna().all().all(), 'Hay una caceria sin presa informada'
+1. Importar `Path`, pandas como `pd` y `matplotlib.pyplot` como `plt`.
+2. Leer `hunts.csv` y obtener el recuento por `prey_type`.
+3. Si no hay filas, mostrar un aviso y omitir el gráfico. No inventes presas ni cantidades.
+4. Si hay datos, crear un gráfico de barras con título, ejes identificados, etiquetas legibles y un color a tu elección.
+5. Guardar la imagen como `reports/charts/05_hunts_by_prey.png`, creando la carpeta si hace falta, y cerrar la figura.
 
-counts = hunts['prey_type'].value_counts()
-assert counts.sum() == len(hunts), 'Las barras no suman el total de cacerias'
+Reutiliza las validaciones de la actividad anterior: cada cacería debe tener una presa informada. Un valor ausente en una fila existente no equivale a una tabla vacía.
 
-if counts.empty:
-    if CHART_FILE.exists():
-        CHART_FILE.unlink()
-    print('No hay cacerias completadas: no se crea el grafico.')
-else:
-    CHARTS_DIR.mkdir(parents=True, exist_ok=True)
-    plt.figure(figsize=(8, 4))
-    counts.plot.bar(color='steelblue')
-    plt.title('Cacerias completadas registradas por tipo de presa')
-    plt.xlabel('Tipo de presa')
-    plt.ylabel('Numero de cacerias completadas')
-    plt.xticks(rotation=30, ha='right')
-    plt.tight_layout()
-    plt.savefig(CHART_FILE, dpi=150)
-    plt.close()
-    print('Grafico:', CHART_FILE)
-    print('Total representado:', counts.sum())
-~~~
+Ejecuta desde la raíz de `bigdata-game`, con el entorno que tenga pandas y Matplotlib:
 
+```powershell
+python scripts/actividades/04_grafico_caza.py
+```
+
+El script guarda una imagen; no necesita abrir una ventana. Abre el PNG desde el explorador de VS Code o de tu sistema. Si no hay datos y existía una imagen de una ejecución anterior, no la presentes como resultado de esta partida.
+
+## 3. Comprueba e interpreta
+
+Compara las alturas de las barras con los recuentos de tu actividad 03. La suma de las cantidades representadas debe coincidir con el total de cacerías de esa misma partida. Comprueba que no se corten los títulos o etiquetas.
+
+Escribe tres frases:
+
+1. **Observación:** indica qué presa o presas tienen más registros y cuántos, incluyendo los empates.
+2. **Límite:** explica por qué el gráfico no muestra cuánto tiempo se dedicó a cazar ni cuánta comida produjo cada presa.
+3. **Pregunta pendiente:** plantea algo que no puedas responder con este gráfico e indica qué dato adicional necesitarías.
+
+Comparación: `sheep` 61 y `deer` 3; suman 64, igual que la actividad 03. Validación visual: títulos y etiquetas completos.
+
+1. **Observación:** `sheep` tiene más registros: 61.
+2. **Límite:** el gráfico cuenta finalizaciones; no contiene duración ni comida producida.
+3. **Pregunta pendiente:** ¿cuánta comida produjo cada presa? Faltaría una cantidad de comida vinculada a cada cacería.
+
+Si no hay cacerías, entrega el aviso del script y explica por qué no hay gráfico ni se puede elegir una presa predominante.
+
+## Entrega
+
+Sube al portfolio en una nueva carpeta el script, el PNG y una ficha breve con las tres decisiones iniciales, la comparación con tus recuentos y las tres frases finales. No modifiques el RAW ni los CSV procesados.
